@@ -73,9 +73,9 @@ Customize tactical outfits for male/female characters and weapon loadouts to mat
 ## 🎮 How to Use
 
 1. **Open Menu** - Authorized players can open the Homeland menu (default: `/homeland` or your custom keybind)
-2. **Join Operation** - Click "Teilnehmen" to teleport to base and gear up
+2. **Join Operation** - Click "Participate (Teleport)" to teleport to base and gear up
 3. **Coordinate** - Use the leader controls to start operations, ping teammates, and broadcast messages
-4. **Return Safely** - Click "Zurück" when done to return to your original location with your civilian gear
+4. **Return Safely** - Click "Back (Teleport)" when done to return to your original location with your civilian gear
 
 ### 👑 Leader Commands
 Only the first authorized player to join has access to:
