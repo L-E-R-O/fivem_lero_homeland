@@ -3,8 +3,8 @@
 > *Your tactical operations companion for FiveM! Deploy with confidence, coordinate with precision.* ✨
 
 [![FiveM](https://img.shields.io/badge/FiveM-Ready-blue?style=flat-square)](https://fivem.net)
-[![License](https://img.shields.io/badge/License-Custom-red?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-3.0.0-green?style=flat-square)](https://github.com/L-E-R-O/fivem_lero_homeland)
+[![License](https://img.shields.io/badge/License-Custom-red?style=flat-square)](#)
+[![Version](https://img.shields.io/badge/Version-3.0.0-green?style=flat-square)](#)
 [![ESX](https://img.shields.io/badge/Framework-ESX-purple?style=flat-square)](https://github.com/esx-framework)
 
 A sleek, powerful tactical operations system for FiveM servers that transforms authorized players into a coordinated homeland security team. Perfect for roleplay servers looking to add military/law enforcement operations! 🚁
