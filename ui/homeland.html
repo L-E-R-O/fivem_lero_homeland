@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HOMELAND SECURITY</title>
+    <link rel="stylesheet" href="homeland.css">
+</head>
+<body style="display: none;" tabindex="0">
+    <div class="menu-container" tabindex="-1">
+        <div class="menu-header">
+            <h1>HOMELAND SECURITY</h1>
+            <div class="status-indicator" id="statusIndicator"></div>
+        </div>
+        
+        <div class="menu-items" id="menuItems">
+            <div class="menu-item" data-action="teleportTo">
+                <span class="item-icon">📍</span>
+                <span class="item-text">Teilnehmen (Teleportieren)</span>
+            </div>
+            <div class="menu-item" data-action="teleportBack">
+                <span class="item-icon">🔙</span>
+                <span class="item-text">Zurück (Teleportieren)</span>
+            </div>
+            <div class="leader-divider">
+                <span class="hint">↓ ONLY LEADER ↓</span>
+            </div>
+            <div class="menu-item" data-action="start">
+                <span class="item-icon">▶</span>
+                <span class="item-text">Operation Starten</span>
+            </div>
+            <div class="menu-item" data-action="stop">
+                <span class="item-icon">■</span>
+                <span class="item-text">Operation Beenden</span>
+            </div>
+            <div class="menu-item" data-action="setWeather">
+                <span class="item-icon">⛈️</span>
+                <span class="item-text">Gewitter aktivieren</span>
+            </div>
+            <div class="menu-item" data-action="restoreWeather">
+                <span class="item-icon">☀️</span>
+                <span class="item-text">Wetter zurücksetzen</span>
+            </div>
+            
+            <div style="margin-top:7px;">
+                <input type="number" id="playerIdInput" placeholder="Spieler-ID (0 = Reset)" min="0" tabindex="1">
+            </div>
+
+            <div class="menu-item" data-action="pingPlayer" style="margin-bottom: 14px;">
+                <span class="item-icon">📡</span>
+                <span class="item-text">Spieler pingen</span>
+            </div>
+        </div>
+
+        <div style="margin-top:7px;">
+            <textarea id="broadcastInput" placeholder="Nachricht eingeben... (max. 200 Zeichen)" maxlength="200" rows="3" tabindex="2"></textarea>
+        </div>
+
+        <div class="menu-item" data-action="broadcastMessage">
+            <span class="item-icon">📢</span>
+            <span class="item-text">Nachricht an Agents senden</span>
+        </div>
+
+        <div class="menu-item" style="margin:15px;" data-action="close">
+            <span class="item-icon">✕</span>
+            <span class="item-text">Schließen</span>
+        </div>
+        
+        <div class="menu-footer">
+            <span class="hint">| Funk: 8.12 MHz |</span>
+        </div>
+    </div>
+
+    <script src="homeland.js"></script>
+</body>
+</html>
