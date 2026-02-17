@@ -142,11 +142,8 @@ RegisterNetEvent('homeland:start', function()
     
     NotifyAuthorized("✅ HOMELAND SECURITY", "Operation wurde erfolgreich gestartet.", "success", 15000)
     
-    -- Play alarm sound for all authorized players
-    local authorized = GetAuthorizedPlayers()
-    for i = 1, #authorized do
-        TriggerClientEvent('homeland:playAlarm', authorized[i])
-    end
+    -- Play alarm sound for all players
+    TriggerClientEvent('homeland:playAlarm', -1)
     
     TriggerClientEvent('homeland:syncStatus', -1, true)
     

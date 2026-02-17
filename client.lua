@@ -8,6 +8,7 @@ local isAtHomeland = false
 local activeBlips = {}
 local pingBlip = nil
 local lastPingCoords = nil
+local alarmSoundId = nil
 
 local weatherOverrideActive = false
 local savedWeatherType = nil
@@ -437,14 +438,32 @@ end)
 -- Play alarm sound when Homeland starts
 RegisterNetEvent('homeland:playAlarm', function()
     local soundConfig = Config.AlarmSound
-    
-    -- Play first sound immediately
-    PlaySoundFrontend(-1, soundConfig.name, soundConfig.set, true)
-    
-    -- Play additional repeats
+    local durationMs = tonumber(soundConfig.durationMs) or 0
+
+    if alarmSoundId then
+        StopSound(alarmSoundId)
+        ReleaseSoundId(alarmSoundId)
+        alarmSoundId = nil
+    end
+
+    alarmSoundId = GetSoundId()
+    PlaySoundFrontend(alarmSoundId, soundConfig.name, soundConfig.set, true)
+
     for i = 1, soundConfig.repeats - 1 do
         Citizen.SetTimeout(soundConfig.delay * i, function()
-            PlaySoundFrontend(-1, soundConfig.name, soundConfig.set, true)
+            if alarmSoundId then
+                PlaySoundFrontend(alarmSoundId, soundConfig.name, soundConfig.set, true)
+            end
+        end)
+    end
+
+    if durationMs > 0 then
+        Citizen.SetTimeout(durationMs, function()
+            if alarmSoundId then
+                StopSound(alarmSoundId)
+                ReleaseSoundId(alarmSoundId)
+                alarmSoundId = nil
+            end
         end)
     end
 end)
