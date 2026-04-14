@@ -1,39 +1,76 @@
-local homelandActive = false
+local operationState = "INACTIVE" -- INACTIVE | ALERTING | ACTIVE
 local spawnedVehicles = {}
+local spawnedVehicleNetIds = {}
 local activePlayers = {}
 local currentWeather = "CLEAR"
 local activePings = {}
 local pingThreads = {}
+local cinemaTransitioned = false
 
 -- Cache authorized players to reduce lookups
 local authorizedPlayersCache = {}
+local leaderCache = {}
 local cacheUpdateTime = 0
-local CACHE_LIFETIME = 30000 -- 30 seconds
+local CACHE_LIFETIME = 30000
 
--- Check if player is authorized (with caching)
-local function IsAuthorized(source)
+-- Check if player is a Leader
+local function IsLeader(source)
     local currentTime = GetGameTimer()
-    
-    -- Update cache if expired
+
     if currentTime - cacheUpdateTime > CACHE_LIFETIME then
         authorizedPlayersCache = {}
+        leaderCache = {}
         cacheUpdateTime = currentTime
     end
-    
-    -- Check cache first
+
+    if leaderCache[source] ~= nil then
+        return leaderCache[source]
+    end
+
+    local identifiers = GetPlayerIdentifiers(source)
+    if not identifiers then
+        leaderCache[source] = false
+        return false
+    end
+
+    for _, configId in ipairs(Config.Leaders) do
+        for _, playerId in ipairs(identifiers) do
+            if playerId == configId then
+                leaderCache[source] = true
+                return true
+            end
+        end
+    end
+
+    leaderCache[source] = false
+    return false
+end
+
+-- Check if player is authorized (Leader OR Agent)
+local function IsAuthorized(source)
+    if IsLeader(source) then
+        return true
+    end
+
+    local currentTime = GetGameTimer()
+
+    if currentTime - cacheUpdateTime > CACHE_LIFETIME then
+        authorizedPlayersCache = {}
+        leaderCache = {}
+        cacheUpdateTime = currentTime
+    end
+
     if authorizedPlayersCache[source] ~= nil then
         return authorizedPlayersCache[source]
     end
-    
-    local xPlayer = ESX.GetPlayerFromId(source)
-    if not xPlayer then 
-        authorizedPlayersCache[source] = false
-        return false 
-    end
-    
+
     local identifiers = GetPlayerIdentifiers(source)
-    
-    for _, configId in ipairs(Config.AuthorizedIdentifiers) do
+    if not identifiers then
+        authorizedPlayersCache[source] = false
+        return false
+    end
+
+    for _, configId in ipairs(Config.Agents) do
         for _, playerId in ipairs(identifiers) do
             if playerId == configId then
                 authorizedPlayersCache[source] = true
@@ -41,29 +78,29 @@ local function IsAuthorized(source)
             end
         end
     end
-    
+
     authorizedPlayersCache[source] = false
     return false
 end
 
--- Get all authorized players (optimized)
+-- Get all authorized players (Leaders + Agents)
 local function GetAuthorizedPlayers()
     local authorized = {}
     local xPlayers = ESX.GetExtendedPlayers()
-    
+
     for _, xPlayer in pairs(xPlayers) do
         if IsAuthorized(xPlayer.source) then
             authorized[#authorized + 1] = xPlayer.source
         end
     end
-    
+
     return authorized
 end
 
 -- Unified notification function
 local function NotifyPlayer(source, title, message, type, duration)
     if not source then return end
-    
+
     TriggerClientEvent('ox_lib:notify', source, {
         title = title,
         description = message,
@@ -75,16 +112,16 @@ end
 -- Notify all authorized players
 local function NotifyAuthorized(title, message, type, duration)
     local authorized = GetAuthorizedPlayers()
-    
+
     for i = 1, #authorized do
         NotifyPlayer(authorized[i], title, message, type, duration)
     end
 end
 
--- Spawn vehicles (optimized)
+-- Spawn vehicles
 local function SpawnVehicles()
     local vehicleCount = #Config.Vehicles
-    
+
     for i = 1, vehicleCount do
         local vehicleData = Config.Vehicles[i]
         local vehicle = CreateVehicle(
@@ -96,22 +133,23 @@ local function SpawnVehicles()
             true,
             true
         )
-        
+
         local timeout = 0
         while not DoesEntityExist(vehicle) and timeout < 100 do
             Wait(50)
             timeout = timeout + 1
         end
-        
+
         if DoesEntityExist(vehicle) then
             spawnedVehicles[#spawnedVehicles + 1] = vehicle
+            spawnedVehicleNetIds[#spawnedVehicleNetIds + 1] = NetworkGetNetworkIdFromEntity(vehicle)
         end
     end
-    
+
     print('[HOMELAND] Spawned ' .. #spawnedVehicles .. '/' .. vehicleCount .. ' vehicles')
 end
 
--- Delete vehicles (optimized)
+-- Delete vehicles
 local function DeleteVehicles()
     for i = 1, #spawnedVehicles do
         local vehicle = spawnedVehicles[i]
@@ -119,42 +157,47 @@ local function DeleteVehicles()
             DeleteEntity(vehicle)
         end
     end
-    
+
     spawnedVehicles = {}
+    spawnedVehicleNetIds = {}
 end
 
--- Start Homeland (optimized)
-RegisterNetEvent('homeland:start', function()
+-----------------------------------------------------------------------
+-- Phase 1: Agents sammeln (INACTIVE → ALERTING)
+-----------------------------------------------------------------------
+RegisterNetEvent('homeland:alertAgents', function()
     local source = source
-    
-    if not IsAuthorized(source) then
-        NotifyPlayer(source, '❌ ZUGRIFF VERWEIGERT', 'Du hast keine Berechtigung für diese Aktion.', 'error')
+
+    if not IsLeader(source) then
+        NotifyPlayer(source, 'ZUGRIFF VERWEIGERT', 'Nur Leader können Operationen starten.', 'error')
         return
     end
-    
-    if homelandActive then
-        NotifyPlayer(source, '❌ FEHLER', 'Homeland-Operation bereits aktiv!', 'error')
+
+    if operationState ~= "INACTIVE" then
+        NotifyPlayer(source, 'FEHLER', 'Operation ist bereits aktiv.', 'error')
         return
     end
-    
-    homelandActive = true
+
+    operationState = "ALERTING"
     SpawnVehicles()
-    
-    NotifyAuthorized("✅ HOMELAND SECURITY", "Operation wurde erfolgreich gestartet.", "success", 15000)
-    
-    -- Play alarm sound for all players
-    TriggerClientEvent('homeland:playAlarm', -1)
-    
-    TriggerClientEvent('homeland:syncStatus', -1, true)
-    
-    print('[HOMELAND] Started by ' .. GetPlayerName(source))
-    
+
+    -- Notification-Sound nur an autorisierte Spieler
+    local authorized = GetAuthorizedPlayers()
+    for i = 1, #authorized do
+        TriggerClientEvent('homeland:playBroadcastSound', authorized[i])
+    end
+
+    NotifyAuthorized("HOMELAND SECURITY", "Alle Agents zum Einsatzort! Operation wird vorbereitet.", "warning", 15000)
+    TriggerClientEvent('homeland:syncStatus', -1, { state = "ALERTING" })
+
+    print('[HOMELAND] Alert phase started by ' .. GetPlayerName(source))
+
     -- Blip update thread
     CreateThread(function()
-        while homelandActive do
-            local authorized = GetAuthorizedPlayers()
+        while operationState ~= "INACTIVE" do
+            local authPlayers = GetAuthorizedPlayers()
             local positions = {}
-            
+
             for playerId in pairs(activePlayers) do
                 local ped = GetPlayerPed(playerId)
                 if DoesEntityExist(ped) then
@@ -164,133 +207,211 @@ RegisterNetEvent('homeland:start', function()
                     }
                 end
             end
-            
-            for i = 1, #authorized do
-                TriggerClientEvent('homeland:updateBlips', authorized[i], positions)
+
+            for i = 1, #authPlayers do
+                TriggerClientEvent('homeland:updateBlips', authPlayers[i], positions)
             end
-            
+
             Wait(2000)
         end
     end)
 end)
 
--- Stop Homeland (optimized)
+-----------------------------------------------------------------------
+-- Phase 2: Einsatz starten (ALERTING → ACTIVE)
+-----------------------------------------------------------------------
+RegisterNetEvent('homeland:goLive', function()
+    local source = source
+
+    if not IsLeader(source) then
+        NotifyPlayer(source, 'ZUGRIFF VERWEIGERT', 'Nur Leader können den Einsatz starten.', 'error')
+        return
+    end
+
+    if operationState ~= "ALERTING" then
+        NotifyPlayer(source, 'FEHLER', 'Agents müssen zuerst gesammelt werden.', 'error')
+        return
+    end
+
+    operationState = "ACTIVE"
+    cinemaTransitioned = false
+
+    -- Weather THUNDER for all players
+    TriggerClientEvent('homeland:applyWeather', -1, Config.HomelandWeather)
+
+    -- Cinema music for ALL players
+    TriggerClientEvent('homeland:playCinemaMusic', -1)
+
+    TriggerClientEvent('homeland:syncStatus', -1, { state = "ACTIVE" })
+
+    print('[HOMELAND] Go live by ' .. GetPlayerName(source))
+
+    -- Fallback timer: transition weather if no client reports music ended
+    Citizen.SetTimeout(Config.CinemaMusic.durationMs + 2000, function()
+        if operationState == "ACTIVE" and not cinemaTransitioned then
+            cinemaTransitioned = true
+            TriggerClientEvent('homeland:applyWeather', -1, Config.HomelandWeatherRain)
+            print('[HOMELAND] Weather fallback: THUNDER -> RAIN')
+        end
+    end)
+end)
+
+-----------------------------------------------------------------------
+-- Cinema music ended (client reports song finished)
+-----------------------------------------------------------------------
+RegisterNetEvent('homeland:cinemaEnded', function()
+    local source = source
+
+    if not IsAuthorized(source) then return end
+
+    -- Only process once (multiple clients will fire this)
+    if cinemaTransitioned or operationState ~= "ACTIVE" then return end
+
+    cinemaTransitioned = true
+    TriggerClientEvent('homeland:applyWeather', -1, Config.HomelandWeatherRain)
+
+    print('[HOMELAND] Cinema ended, weather: THUNDER -> RAIN')
+end)
+
+-----------------------------------------------------------------------
+-- Stop Operation (ALERTING/ACTIVE → INACTIVE)
+-----------------------------------------------------------------------
 RegisterNetEvent('homeland:stop', function()
     local source = source
-    
-    if not IsAuthorized(source) then
-        NotifyPlayer(source, '❌ ZUGRIFF VERWEIGERT', 'Du hast keine Berechtigung für diese Aktion.', 'error')
+
+    if not IsLeader(source) then
+        NotifyPlayer(source, 'ZUGRIFF VERWEIGERT', 'Nur Leader können Operationen beenden.', 'error')
         return
     end
-    
-    if not homelandActive then
-        NotifyPlayer(source, '❌ FEHLER', 'Keine aktive Operation.', 'error')
+
+    if operationState == "INACTIVE" then
+        NotifyPlayer(source, 'FEHLER', 'Keine aktive Operation.', 'error')
         return
     end
-    
-    homelandActive = false
+
+    local wasActive = operationState == "ACTIVE"
+    operationState = "INACTIVE"
+    cinemaTransitioned = false
     DeleteVehicles()
-    
-    -- Force return all active players
-    local returnedCount = 0
-    for playerId in pairs(activePlayers) do
-        TriggerClientEvent('ox_lib:notify', playerId, {
-            title = '☠️ NOTFALL-EVAKUIERUNG',
-            description = 'Operation abgebrochen! Sofortige Rückkehr eingeleitet.',
-            type = 'error',
-            duration = 5000
-        })
-        TriggerClientEvent('homeland:forceTeleportBack', playerId)
-        returnedCount = returnedCount + 1
+
+    -- Stop cinema music for all players
+    if wasActive then
+        TriggerClientEvent('homeland:stopCinemaMusic', -1)
     end
-    
+
+    -- Force return all active players
+    for playerId in pairs(activePlayers) do
+        NotifyPlayer(playerId, 'NOTFALL-EVAKUIERUNG', 'Operation abgebrochen! Sofortige Rückkehr eingeleitet.', 'error')
+        TriggerClientEvent('homeland:forceTeleportBack', playerId)
+    end
+
     -- Cleanup
     activePlayers = {}
     pingThreads = {}
     activePings = {}
-    
-    NotifyAuthorized("✅ HOMELAND SECURITY", "Operation wurde erfolgreich beendet.", "success")
-    TriggerClientEvent('homeland:syncStatus', -1, false)
-    
+
+    -- Restore weather for all
+    TriggerClientEvent('homeland:restoreWeather', -1)
+
+    NotifyAuthorized("HOMELAND SECURITY", "Operation wurde beendet.", "success")
+    TriggerClientEvent('homeland:syncStatus', -1, { state = "INACTIVE" })
+
     local authorized = GetAuthorizedPlayers()
     for i = 1, #authorized do
         TriggerClientEvent('homeland:clearBlips', authorized[i])
         TriggerClientEvent('homeland:removePingBlip', authorized[i])
     end
-    
-    print('[HOMELAND] Stopped - Returned ' .. returnedCount .. ' players')
+
+    print('[HOMELAND] Stopped by ' .. GetPlayerName(source))
 end)
 
--- Teleport to Homeland
+-----------------------------------------------------------------------
+-- Teleport
+-----------------------------------------------------------------------
 RegisterNetEvent('homeland:teleportTo', function()
     local source = source
-    
+
     if not IsAuthorized(source) then
-        NotifyPlayer(source, '❌ ZUGRIFF VERWEIGERT', 'Du hast keine Berechtigung.', 'error')
+        NotifyPlayer(source, 'ZUGRIFF VERWEIGERT', 'Du hast keine Berechtigung.', 'error')
         return
     end
-    
-    if not homelandActive then
-        NotifyPlayer(source, '❌ FEHLER', 'Keine aktive Operation. Starte erst das System.', 'error')
+
+    if operationState == "INACTIVE" then
+        NotifyPlayer(source, 'FEHLER', 'Keine aktive Operation.', 'error')
         return
     end
-    
+
     if activePlayers[source] then
-        NotifyPlayer(source, '❌ FEHLER', 'Du bist bereits im Einsatz! Kehre erst zurück.', 'error')
+        NotifyPlayer(source, 'FEHLER', 'Du bist bereits im Einsatz!', 'error')
         return
     end
-    
+
     activePlayers[source] = true
     TriggerClientEvent('homeland:teleportTo', source)
+
+    -- Tuning nach Teleport senden — alle NetIds auf einmal, Client arbeitet sequentiell
+    Citizen.SetTimeout(2000, function()
+        TriggerClientEvent('homeland:tuneVehicles', source, spawnedVehicleNetIds)
+    end)
 end)
 
--- Teleport back
 RegisterNetEvent('homeland:teleportBack', function()
     local source = source
-    
-    if not IsAuthorized(source) then
-        return
-    end
-    
+
+    if not IsAuthorized(source) then return end
+
     activePlayers[source] = nil
     TriggerClientEvent('homeland:teleportBack', source)
 end)
 
--- Get current status
+-----------------------------------------------------------------------
+-- Status & Auth Callbacks
+-----------------------------------------------------------------------
 ESX.RegisterServerCallback('homeland:getStatus', function(source, cb)
-    cb(homelandActive)
+    cb({
+        state = operationState,
+        isLeader = IsLeader(source)
+    })
 end)
 
--- Check authorization callback
 ESX.RegisterServerCallback('homeland:checkAuth', function(source, cb)
     cb(IsAuthorized(source))
 end)
 
--- Get player loadout (ox_inventory)
+-----------------------------------------------------------------------
+-- Weapons (ox_inventory) — all with auth checks
+-----------------------------------------------------------------------
 ESX.RegisterServerCallback('homeland:getLoadout', function(source, cb)
+    if not IsAuthorized(source) then
+        cb({})
+        return
+    end
+
     local inv = exports.ox_inventory:GetInventory(source)
     local weapons = {}
-    
+
     if inv and inv.items then
         for slot, item in pairs(inv.items) do
             if item and item.name and string.match(item.name, "^WEAPON_") then
-                table.insert(weapons, {
+                weapons[#weapons + 1] = {
                     name = item.name,
                     slot = slot,
                     metadata = item.metadata
-                })
+                }
             end
         end
     end
-    
+
     cb(weapons)
 end)
 
--- Remove all weapons (ox_inventory)
 RegisterNetEvent('homeland:removeAllWeapons', function()
     local source = source
+
+    if not IsAuthorized(source) then return end
+
     local inv = exports.ox_inventory:GetInventory(source)
-    
+
     if inv and inv.items then
         for slot, item in pairs(inv.items) do
             if item and item.name and string.match(item.name, "^WEAPON_") then
@@ -300,16 +421,11 @@ RegisterNetEvent('homeland:removeAllWeapons', function()
     end
 end)
 
--- Give Homeland weapons (ox_inventory)
 RegisterNetEvent('homeland:giveWeapons', function()
     local source = source
-    
-    if not IsAuthorized(source) then
-        return
-    end
-    
-    print('[HOMELAND] Giving weapons to player ' .. source)
-    
+
+    if not IsAuthorized(source) then return end
+
     for _, weaponData in ipairs(Config.HomelandWeapons) do
         local metadata = {
             ammo = weaponData.ammo,
@@ -317,271 +433,201 @@ RegisterNetEvent('homeland:giveWeapons', function()
             registered = true,
             serial = 'HOMELAND'
         }
-        
+
         local success = exports.ox_inventory:AddItem(source, weaponData.weapon, 1, metadata)
-        
-        if success then
-            print('[HOMELAND] Successfully gave ' .. weaponData.weapon .. ' to player ' .. source)
-        else
+
+        if not success then
             print('[HOMELAND] Failed to give ' .. weaponData.weapon .. ' to player ' .. source)
         end
     end
-    
-    TriggerClientEvent('ox_lib:notify', source, {
-        title = '⚠️ AUSRÜSTUNG',
-        description = 'Taktische Bewaffnung übernommen.',
-        type = 'success'
-    })
+
+    NotifyPlayer(source, 'AUSRÜSTUNG', 'Taktische Bewaffnung übernommen.', 'success')
 end)
 
--- Remove Homeland weapons specifically
 RegisterNetEvent('homeland:removeHomelandWeapons', function()
     local source = source
-    local xPlayer = ESX.GetPlayerFromId(source)
-    
-    if not xPlayer then
-        print('[HOMELAND] ERROR: Player not found')
-        return
-    end
-    
-    print('[HOMELAND] ========== REMOVING HOMELAND WEAPONS ==========')
-    print('[HOMELAND] Player: ' .. source .. ' (' .. xPlayer.identifier .. ')')
-    
-    local removedCount = 0
+
+    if not IsAuthorized(source) then return end
+
     local inv = exports.ox_inventory:GetInventory(source)
-    
+    local removedCount = 0
+
     if inv and inv.items then
-        print('[HOMELAND] Scanning inventory for HOMELAND weapons...')
-        
         local itemsToRemove = {}
         for slot, item in pairs(inv.items) do
             if item and item.metadata and item.metadata.serial == 'HOMELAND' then
-                print('[HOMELAND] Found: ' .. item.name .. ' in slot ' .. slot .. ' with serial HOMELAND')
-                table.insert(itemsToRemove, {
+                itemsToRemove[#itemsToRemove + 1] = {
                     name = item.name,
                     slot = slot,
                     count = item.count or 1
-                })
+                }
             end
         end
-        
+
         for _, itemData in ipairs(itemsToRemove) do
-            print('[HOMELAND] Removing ' .. itemData.name .. ' from slot ' .. itemData.slot)
-            
             local success = exports.ox_inventory:RemoveItem(source, itemData.name, itemData.count, nil, itemData.slot)
-            
             if success then
                 removedCount = removedCount + 1
-                print('[HOMELAND] Successfully removed ' .. itemData.name)
             else
-                print('[HOMELAND] Failed to remove ' .. itemData.name .. ' via API, trying SQL...')
+                print('[HOMELAND] Failed to remove ' .. itemData.name .. ' from player ' .. source)
             end
         end
     end
-    
-    if removedCount == 0 then
-        print('[HOMELAND] Attempting SQL removal...')
-        
-        exports.oxmysql:execute([[
-            DELETE FROM ox_inventory 
-            WHERE owner = ? 
-            AND JSON_EXTRACT(data, '$.metadata.serial') = 'HOMELAND'
-        ]], {
-            xPlayer.identifier
-        }, function(result)
-            local affectedRows = type(result) == 'number' and result or 0
-            
-            print('[HOMELAND] SQL: Deleted ' .. affectedRows .. ' items from database')
-            
-            if affectedRows > 0 then
-                removedCount = affectedRows
-                
-                Citizen.SetTimeout(500, function()
-                    exports.ox_inventory:ClearInventory(source)
-                    
-                    Citizen.SetTimeout(200, function()
-                        TriggerClientEvent('ox_inventory:reload', source)
-                        print('[HOMELAND] Inventory reloaded from database')
-                    end)
-                end)
-            end
-        end)
-        
-        Citizen.Wait(1000)
-    end
-    
-    print('[HOMELAND] ========== REMOVAL COMPLETE ==========')
-    print('[HOMELAND] Total removed: ' .. removedCount)
-    
+
     if removedCount > 0 then
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = '☠️ ENTWAFFNUNG',
-            description = removedCount .. ' Waffe(n) konfisziert.',
-            type = 'warning'
-        })
-    else
-        TriggerClientEvent('ox_lib:notify', source, {
-            title = 'HOMELAND',
-            description = 'Keine taktische Ausrüstung gefunden.',
-            type = 'info'
-        })
+        NotifyPlayer(source, 'ENTWAFFNUNG', removedCount .. ' Waffe(n) konfisziert.', 'warning')
     end
 end)
 
--- Restore weapons (ox_inventory)
 RegisterNetEvent('homeland:restoreWeapons', function(loadout)
     local source = source
-    
-    if not loadout or #loadout == 0 then
-        return
-    end
-    
+
+    if not IsAuthorized(source) then return end
+
+    if not loadout or #loadout == 0 then return end
+
+    -- Validate loadout entries
     for _, weapon in ipairs(loadout) do
-        exports.ox_inventory:AddItem(source, weapon.name, 1, weapon.metadata)
+        if weapon.name and string.match(weapon.name, "^WEAPON_") then
+            exports.ox_inventory:AddItem(source, weapon.name, 1, weapon.metadata)
+        end
     end
 end)
 
--- Set Homeland Weather to Thunder
+-----------------------------------------------------------------------
+-- Weather (manual controls)
+-----------------------------------------------------------------------
 RegisterNetEvent('homeland:setWeather', function()
     local source = source
-    
-    if not IsAuthorized(source) then
-        NotifyPlayer(source, '❌ ZUGRIFF VERWEIGERT', 'Du hast keine Berechtigung für diese Aktion.', 'error')
+
+    if not IsLeader(source) then
+        NotifyPlayer(source, 'ZUGRIFF VERWEIGERT', 'Nur Leader können das Wetter ändern.', 'error')
         return
     end
-    
+
     currentWeather = "THUNDER"
     TriggerClientEvent('homeland:applyWeather', -1, Config.HomelandWeather)
-    
-    print('[HOMELAND] Weather changed to THUNDER by ' .. GetPlayerName(source))
-    
-    NotifyPlayer(source, '✅ WETTERWARNUNG', 'Wetter wurde erfolgreich auf Gewitter gesetzt.', 'success')
+
+    NotifyPlayer(source, 'WETTERWARNUNG', 'Wetter auf Gewitter gesetzt.', 'success')
 end)
 
--- Restore Weather to Clear
 RegisterNetEvent('homeland:restoreWeather', function()
     local source = source
-    
-    if not IsAuthorized(source) then
-        NotifyPlayer(source, '❌ ZUGRIFF VERWEIGERT', 'Du hast keine Berechtigung für diese Aktion.', 'error')
+
+    if not IsLeader(source) then
+        NotifyPlayer(source, 'ZUGRIFF VERWEIGERT', 'Nur Leader können das Wetter ändern.', 'error')
         return
     end
-    
+
     currentWeather = "CLEAR"
     TriggerClientEvent('homeland:restoreWeather', -1)
-    
-    print('[HOMELAND] Weather restored to CLEAR by ' .. GetPlayerName(source))
-    
-    NotifyPlayer(source, '✅ ENTWARNUNG', 'Wetter wurde erfolgreich auf Klar gesetzt.', 'success')
+
+    NotifyPlayer(source, 'ENTWARNUNG', 'Wetter zurückgesetzt.', 'success')
 end)
 
--- Player returned from Homeland
+-----------------------------------------------------------------------
+-- Player state events
+-----------------------------------------------------------------------
 RegisterNetEvent('homeland:playerReturned', function()
     local source = source
+
+    if not IsAuthorized(source) then return end
+
     activePlayers[source] = nil
-    print('[HOMELAND] Player ' .. GetPlayerName(source) .. ' returned from HOMELAND')
 end)
 
 -- Cleanup on player disconnect
 AddEventHandler('playerDropped', function()
     local source = source
-    
+
     activePlayers[source] = nil
     activePings[source] = nil
     pingThreads[source] = nil
     authorizedPlayersCache[source] = nil
+    leaderCache[source] = nil
 end)
 
--- Clear cache periodically
-CreateThread(function()
-    while true do
-        Wait(60000) -- Every minute
-        local currentTime = GetGameTimer()
-        if currentTime - cacheUpdateTime > CACHE_LIFETIME then
-            authorizedPlayersCache = {}
-            cacheUpdateTime = currentTime
-        end
-    end
-end)
-
+-----------------------------------------------------------------------
+-- Ping System
+-----------------------------------------------------------------------
 RegisterNetEvent('homeland:pingPlayer', function(playerId)
     local source = source
-    
-    if not IsAuthorized(source) then 
-        NotifyPlayer(source, '❌ ZUGRIFF VERWEIGERT', 'Du hast keine Berechtigung.', 'error')
-        return 
+
+    if not IsAuthorized(source) then
+        NotifyPlayer(source, 'ZUGRIFF VERWEIGERT', 'Du hast keine Berechtigung.', 'error')
+        return
     end
-    
+
     playerId = tonumber(playerId)
-    if not playerId or playerId < 0 or playerId > 1024 then 
-        NotifyPlayer(source, '❌ FEHLER', 'Ungültige Spieler-ID.', 'error')
-        return 
+    if not playerId or playerId < 0 or playerId > 1024 then
+        NotifyPlayer(source, 'FEHLER', 'Ungültige Spieler-ID.', 'error')
+        return
     end
-    
+
     if playerId == 0 then
         pingThreads[source] = nil
         activePings[source] = nil
-        
-        for playerId in pairs(activePlayers) do
-            TriggerClientEvent('homeland:removePingBlip', playerId)
+
+        for pid in pairs(activePlayers) do
+            TriggerClientEvent('homeland:removePingBlip', pid)
         end
         TriggerClientEvent('homeland:removePingBlip', source)
-        
-        NotifyPlayer(source, '✅ PING RESET', 'Spieler-Tracking wurde zurückgesetzt.', 'info')
+
+        NotifyPlayer(source, 'PING RESET', 'Spieler-Tracking wurde zurückgesetzt.', 'info')
         return
     end
-    
+
     local targetPed = GetPlayerPed(playerId)
     if not DoesEntityExist(targetPed) then
-        NotifyPlayer(source, '❌ FEHLER', 'Spieler nicht gefunden.', 'error')
+        NotifyPlayer(source, 'FEHLER', 'Spieler nicht gefunden.', 'error')
         TriggerClientEvent('homeland:stopClientPing', source)
         return
     end
-    
+
     if activePings[source] == playerId and pingThreads[source] then
         return
     end
-    
+
     activePings[source] = playerId
-    
+
     if pingThreads[source] then
         pingThreads[source] = nil
         Wait(50)
     end
-    
-    NotifyPlayer(source, '✅ PING AKTIV', 'Spieler wird nun getrackt.', 'success')
-    
+
+    NotifyPlayer(source, 'PING AKTIV', 'Spieler wird nun getrackt.', 'success')
+
     pingThreads[source] = true
     CreateThread(function()
         while pingThreads[source] and activePings[source] == playerId do
             local ped = GetPlayerPed(playerId)
-            
+
             if DoesEntityExist(ped) then
                 local coords = GetEntityCoords(ped)
-                
-                if homelandActive then
+
+                if operationState ~= "INACTIVE" then
                     for activePlayerId in pairs(activePlayers) do
                         TriggerClientEvent('homeland:showPingBlip', activePlayerId, coords)
                     end
                 end
-                
+
                 TriggerClientEvent('homeland:showPingBlip', source, coords)
             else
                 pingThreads[source] = nil
                 activePings[source] = nil
-                
-                if homelandActive then
+
+                if operationState ~= "INACTIVE" then
                     for activePlayerId in pairs(activePlayers) do
                         TriggerClientEvent('homeland:removePingBlip', activePlayerId)
                     end
                 end
                 TriggerClientEvent('homeland:removePingBlip', source)
-                
-                NotifyPlayer(source, '⚠️ PING BEENDET', 'Ziel ist offline gegangen.', 'warning')
+
+                NotifyPlayer(source, 'PING BEENDET', 'Ziel ist offline gegangen.', 'warning')
                 TriggerClientEvent('homeland:stopClientPing', source)
                 break
             end
-            
+
             Wait(2000)
         end
     end)
@@ -589,66 +635,62 @@ end)
 
 RegisterNetEvent('homeland:stopPingPlayer', function()
     local source = source
-    
+
+    if not IsAuthorized(source) then return end
+
     pingThreads[source] = nil
     activePings[source] = nil
-    
+
     for playerId in pairs(activePlayers) do
         TriggerClientEvent('homeland:removePingBlip', playerId)
     end
     TriggerClientEvent('homeland:removePingBlip', source)
-    
-    NotifyPlayer(source, '✅ PING GESTOPPT', 'Spieler-Tracking wurde beendet.', 'info')
+
+    NotifyPlayer(source, 'PING GESTOPPT', 'Spieler-Tracking wurde beendet.', 'info')
 end)
 
--- Broadcast message to all authorized players
+-----------------------------------------------------------------------
+-- Broadcast message
+-----------------------------------------------------------------------
 RegisterNetEvent('homeland:broadcastMessage', function(message)
     local source = source
-    
-    if not IsAuthorized(source) then 
-        NotifyPlayer(source, '❌ ZUGRIFF VERWEIGERT', 'Du hast keine Berechtigung.', 'error')
-        return 
+
+    if not IsAuthorized(source) then
+        NotifyPlayer(source, 'ZUGRIFF VERWEIGERT', 'Du hast keine Berechtigung.', 'error')
+        return
     end
-    
-    -- Validate message
+
     if not message or type(message) ~= 'string' then
-        NotifyPlayer(source, '❌ FEHLER', 'Ungültige Nachricht.', 'error')
+        NotifyPlayer(source, 'FEHLER', 'Ungültige Nachricht.', 'error')
         return
     end
-    
-    -- Trim and limit message length
+
     message = string.sub(message:gsub("^%s*(.-)%s*$", "%1"), 1, 200)
-    
+
     if message == '' then
-        NotifyPlayer(source, '❌ FEHLER', 'Nachricht darf nicht leer sein.', 'error')
+        NotifyPlayer(source, 'FEHLER', 'Nachricht darf nicht leer sein.', 'error')
         return
     end
-    
+
     local senderName = GetPlayerName(source)
-    
-    print('[HOMELAND] Broadcast from ' .. senderName .. ' (' .. source .. '): ' .. message)
-    
-    -- Send to all authorized players
     local authorized = GetAuthorizedPlayers()
     local recipientCount = 0
-    
+
     for i = 1, #authorized do
         local recipientId = authorized[i]
-        
-        -- Play notification sound
-        TriggerClientEvent('homeland:playBroadcastSound', recipientId)
-        
-        -- Small delay before showing notification
+
+        TriggerClientEvent('homeland:playPhoneSound', recipientId)
+
         Citizen.SetTimeout(50, function()
             TriggerClientEvent('ox_lib:notify', recipientId, {
-                title = '📢 HOMELAND BROADCAST',
+                title = senderName,
                 description = message,
                 type = 'inform',
                 duration = 12000,
                 position = 'top',
                 style = {
                     backgroundColor = '#1a1a1a',
-                    color = '#ff6b00',
+                    color = '#00ff41',
                     minWidth = '300px',
                     maxWidth = '450px',
                     ['.description'] = {
@@ -664,10 +706,9 @@ RegisterNetEvent('homeland:broadcastMessage', function(message)
                 }
             })
         end)
-        
+
         recipientCount = recipientCount + 1
     end
-    
-    -- Confirm to sender
-    NotifyPlayer(source, '✅ BROADCAST GESENDET', 'Nachricht an ' .. recipientCount .. ' Empfänger gesendet.', 'success')
+
+    NotifyPlayer(source, 'BROADCAST GESENDET', 'Nachricht an ' .. recipientCount .. ' Empfänger gesendet.', 'success')
 end)

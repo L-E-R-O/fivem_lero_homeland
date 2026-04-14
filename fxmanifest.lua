@@ -4,7 +4,7 @@ lua54 'yes'
 
 author 'LERO'
 description 'HOMELAND SECURITY - Tactical Operations System'
-version '3.0.0'
+version '4.0.0'
 
 shared_scripts {
     '@es_extended/imports.lua',
@@ -17,15 +17,13 @@ client_scripts {
 }
 
 server_scripts {
-    '@oxmysql/lib/MySQL.lua',
     'server.lua'
 }
 
 dependencies {
     'es_extended',
     'ox_lib',
-    'ox_inventory',
-    'oxmysql'
+    'ox_inventory'
 }
 
 ui_page 'ui/homeland.html'
@@ -33,5 +31,8 @@ ui_page 'ui/homeland.html'
 files {
     'ui/homeland.html',
     'ui/homeland.css',
-    'ui/homeland.js'
+    'ui/homeland.js',
+    'ui/homeland_music.ogg',
+    'ui/notification_agents.ogg',
+    'ui/logo.svg'
 }

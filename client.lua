@@ -1,19 +1,20 @@
-local playerData = {}
 local savedOutfit = nil
 local savedPosition = nil
-local isHomelandActive = false
+local operationState = "INACTIVE" -- INACTIVE | ALERTING | ACTIVE
 local savedWeapons = {}
 local isAtHomeland = false
+local isLeader = false
 
 local activeBlips = {}
 local pingBlip = nil
-local lastPingCoords = nil
-local alarmSoundId = nil
 
 local weatherOverrideActive = false
-local savedWeatherType = nil
+local homelandVehicleNetIds = {}
+local handlingThreadActive = false
 
--- Save current outfit
+-----------------------------------------------------------------------
+-- Outfit System
+-----------------------------------------------------------------------
 local function SaveOutfit()
     local ped = PlayerPedId()
     savedOutfit = {
@@ -33,10 +34,9 @@ local function SaveOutfit()
     }
 end
 
--- Apply outfit
 local function ApplyOutfit(outfit)
     local ped = PlayerPedId()
-    
+
     SetPedComponentVariation(ped, 8, outfit.tshirt_1, outfit.tshirt_2, 0)
     SetPedComponentVariation(ped, 11, outfit.torso_1, outfit.torso_2, 0)
     SetPedComponentVariation(ped, 10, outfit.decals_1, outfit.decals_2, 0)
@@ -47,19 +47,19 @@ local function ApplyOutfit(outfit)
     SetPedComponentVariation(ped, 9, outfit.bproof_1, outfit.bproof_2, 0)
     SetPedComponentVariation(ped, 1, outfit.mask_1, outfit.mask_2, 0)
     SetPedComponentVariation(ped, 5, outfit.bags_1, outfit.bags_2, 0)
-    
+
     if outfit.helmet_1 == -1 then
         ClearPedProp(ped, 0)
     else
         SetPedPropIndex(ped, 0, outfit.helmet_1, outfit.helmet_2, true)
     end
-    
+
     if outfit.ears_1 == -1 then
         ClearPedProp(ped, 2)
     else
         SetPedPropIndex(ped, 2, outfit.ears_1, outfit.ears_2, true)
     end
-    
+
     if outfit.glasses_1 == -1 then
         ClearPedProp(ped, 1)
     else
@@ -67,259 +67,201 @@ local function ApplyOutfit(outfit)
     end
 end
 
--- Save current weapons (ESX)
+-----------------------------------------------------------------------
+-- Weapons System
+-----------------------------------------------------------------------
 local function SaveWeapons()
     savedWeapons = {}
-    
     ESX.TriggerServerCallback('homeland:getLoadout', function(loadout)
         savedWeapons = loadout
     end)
 end
 
--- Remove all weapons (ESX)
 local function RemoveAllWeapons()
     TriggerServerEvent('homeland:removeAllWeapons')
 end
 
--- Give Homeland weapons (ESX)
 local function GiveHomelandWeapons()
     TriggerServerEvent('homeland:giveWeapons')
 end
 
--- Restore saved weapons (ESX)
 local function RestoreWeapons()
-    if not savedWeapons or #savedWeapons == 0 then
-        return
-    end
-    
+    if not savedWeapons or #savedWeapons == 0 then return end
     TriggerServerEvent('homeland:restoreWeapons', savedWeapons)
     savedWeapons = {}
 end
 
--- Remove Homeland weapons
 local function RemoveHomelandWeapons()
     TriggerServerEvent('homeland:removeHomelandWeapons')
 end
 
--- Teleport to Homeland
+-----------------------------------------------------------------------
+-- Teleport
+-----------------------------------------------------------------------
 RegisterNetEvent('homeland:teleportTo', function()
-    if isAtHomeland then
-        ESX.ShowNotification('❌ FEHLER | Du bist bereits im Einsatz!')
-        return
-    end
-    
+    if isAtHomeland then return end
+
     local ped = PlayerPedId()
-    
-    -- Save current position, outfit and weapons
+
     savedPosition = GetEntityCoords(ped)
     SaveOutfit()
-    
+
     Citizen.Wait(100)
     SaveWeapons()
-    
+
     Citizen.Wait(100)
     RemoveAllWeapons()
-    
+
     Citizen.Wait(200)
-    
-    -- Teleport
+
     SetEntityCoords(ped, Config.TeleportLocation.x, Config.TeleportLocation.y, Config.TeleportLocation.z)
     SetEntityHeading(ped, Config.TeleportLocation.heading)
-    
-    -- Apply Homeland outfit
+
     local gender = 'male'
     if GetEntityModel(ped) == GetHashKey('mp_f_freemode_01') then
         gender = 'female'
     end
-    
+
     ApplyOutfit(Config.HomelandOutfit[gender])
-    
+
     Citizen.Wait(200)
-    
-    -- Give Homeland weapons
     GiveHomelandWeapons()
-    
-    -- Mark as at Homeland
+
     isAtHomeland = true
-    
-    -- Update UI
+
     SendNUIMessage({
         action = 'updateTeleportState',
         isAtHomeland = true
     })
-    
-    ESX.ShowNotification('⚠️ EINSATZBEREIT | Du bist jetzt im Dienst.')
 end)
 
--- Attempt teleport back (called from server to check if valid)
-RegisterNetEvent('homeland:attemptTeleportBack', function()
-    -- Check if we have a saved position
-    if savedPosition and isAtHomeland then
-        -- We were at Homeland, allow teleport back
-        TriggerEvent('homeland:teleportBack')
-    else
-        ESX.ShowNotification('❌ FEHLER | Du warst nicht im Einsatz.')
-    end
-end)
-
--- Teleport back
 RegisterNetEvent('homeland:teleportBack', function()
-    if not savedPosition then
-        ESX.ShowNotification('❌ FEHLER | Keine Rückkehrposition gefunden.')
-        return
-    end
-    
-    if not isAtHomeland then
-        ESX.ShowNotification('❌ FEHLER | Du warst nicht im Einsatz.')
-        return
-    end
-    
+    if not savedPosition or not isAtHomeland then return end
+
     local ped = PlayerPedId()
-    
-    -- Remove Homeland weapons specifically
+
     RemoveHomelandWeapons()
-    
     Citizen.Wait(300)
-    
-    -- Teleport back
+
     SetEntityCoords(ped, savedPosition.x, savedPosition.y, savedPosition.z)
-    
-    -- Restore outfit
+
     if savedOutfit then
         ApplyOutfit(savedOutfit)
     end
-    
+
     Citizen.Wait(300)
-    
-    -- Restore weapons
     RestoreWeapons()
-    
+
     savedPosition = nil
     savedOutfit = nil
     isAtHomeland = false
-    
-    -- Notify server that we're back
+
     TriggerServerEvent('homeland:playerReturned')
-    -- Blip entfernen, falls vorhanden
     TriggerEvent('homeland:removePingBlip')
-    
-    -- Update UI
+
     SendNUIMessage({
         action = 'updateTeleportState',
         isAtHomeland = false
     })
-    
-    ESX.ShowNotification('✓ ZURÜCKGEKEHRT | Zivile Identität wiederhergestellt.')
 end)
 
--- Force teleport back (called when Homeland ends)
 RegisterNetEvent('homeland:forceTeleportBack', function()
-    if not isAtHomeland or not savedPosition then
-        print('[HOMELAND] Force teleport back called but player not at Homeland or no saved position')
-        return
-    end
-    
-    print('[HOMELAND] Force teleporting player back')
-    
+    if not isAtHomeland or not savedPosition then return end
+
     local ped = PlayerPedId()
-    
-    -- Remove Homeland weapons
+
     RemoveHomelandWeapons()
-    
     Citizen.Wait(300)
-    
-    -- Teleport back
+
     SetEntityCoords(ped, savedPosition.x, savedPosition.y, savedPosition.z)
-    
-    -- Restore outfit
+
     if savedOutfit then
         ApplyOutfit(savedOutfit)
     end
-    
+
     Citizen.Wait(300)
-    
-    -- Restore weapons
     RestoreWeapons()
-    
+
     savedPosition = nil
     savedOutfit = nil
     isAtHomeland = false
-    
-    -- Notify server
+
     TriggerServerEvent('homeland:playerReturned')
-    -- Blip entfernen, falls vorhanden
     TriggerEvent('homeland:removePingBlip')
-    
-    -- Update UI
+
     SendNUIMessage({
         action = 'updateTeleportState',
         isAtHomeland = false
     })
-    
-    ESX.ShowNotification('☠️ EVAKUIERT | Notfall-Rückkehr abgeschlossen.')
 end)
 
--- Sync status
-RegisterNetEvent('homeland:syncStatus', function(active)
-    isHomelandActive = active
-    
-    -- Reset teleport state when Homeland stops
-    if not active and not isAtHomeland then
-        -- Only reset if we're not at Homeland (force teleport will handle it)
+-----------------------------------------------------------------------
+-- Status Sync
+-----------------------------------------------------------------------
+RegisterNetEvent('homeland:syncStatus', function(stateData)
+    operationState = stateData.state
+
+    if operationState == "INACTIVE" and not isAtHomeland then
         SendNUIMessage({
             action = 'updateTeleportState',
             isAtHomeland = false
         })
     end
-    
+
     SendNUIMessage({
         type = 'updateStatus',
-        active = active
+        state = operationState
     })
-    
-    -- Update teleport state
+
     SendNUIMessage({
         action = 'updateTeleportState',
         isAtHomeland = isAtHomeland
     })
-    
-    if not active then
-        -- Blip entfernen, falls Job beendet wird
+
+    if operationState == "INACTIVE" then
         TriggerEvent('homeland:removePingBlip')
     end
 end)
 
--- Open UI Event
+-----------------------------------------------------------------------
+-- Open UI
+-----------------------------------------------------------------------
 RegisterNetEvent('homeland:openUI', function()
-    -- Hole aktuellen Status
-    ESX.TriggerServerCallback('homeland:getStatus', function(active)
-        -- Öffne NUI mit Focus für Keyboard-Input
+    ESX.TriggerServerCallback('homeland:getStatus', function(statusData)
+        operationState = statusData.state
+        isLeader = statusData.isLeader
+
         SetNuiFocus(true, true)
         SendNUIMessage({
             action = 'open',
-            status = active,
-            isAtHomeland = isAtHomeland -- Send current teleport state
+            state = operationState,
+            isAtHomeland = isAtHomeland,
+            isLeader = isLeader
         })
     end)
 end)
 
+-----------------------------------------------------------------------
 -- NUI Callbacks
+-----------------------------------------------------------------------
 RegisterNUICallback('close', function(data, cb)
     SetNuiFocus(false, false)
     cb('ok')
 end)
 
 RegisterNUICallback('refocus', function(data, cb)
-    -- Restore focus after teleport
     SetNuiFocus(true, true)
-    SendNUIMessage({
-        action = 'refocus'
-    })
+    SendNUIMessage({ action = 'refocus' })
     cb('ok')
 end)
 
-RegisterNUICallback('startHomeland', function(data, cb)
-    TriggerServerEvent('homeland:start')
+RegisterNUICallback('alertAgents', function(data, cb)
+    TriggerServerEvent('homeland:alertAgents')
+    cb('ok')
+end)
+
+RegisterNUICallback('goLive', function(data, cb)
+    TriggerServerEvent('homeland:goLive')
     cb('ok')
 end)
 
@@ -331,30 +273,27 @@ end)
 RegisterNUICallback('teleportTo', function(data, cb)
     TriggerServerEvent('homeland:teleportTo')
     cb('ok')
-    -- Restore focus after teleport
     Citizen.SetTimeout(200, function()
         SetNuiFocus(true, true)
-        SendNUIMessage({
-            action = 'refocus'
-        })
+        SendNUIMessage({ action = 'refocus' })
     end)
 end)
 
 RegisterNUICallback('teleportBack', function(data, cb)
     TriggerServerEvent('homeland:teleportBack')
     cb('ok')
-    -- Restore focus after teleport
     Citizen.SetTimeout(200, function()
         SetNuiFocus(true, true)
-        SendNUIMessage({
-            action = 'refocus'
-        })
+        SendNUIMessage({ action = 'refocus' })
     end)
 end)
 
 RegisterNUICallback('getStatus', function(data, cb)
-    ESX.TriggerServerCallback('homeland:getStatus', function(active)
-        cb({active = active})
+    ESX.TriggerServerCallback('homeland:getStatus', function(statusData)
+        cb({
+            state = statusData.state,
+            isLeader = statusData.isLeader
+        })
     end)
 end)
 
@@ -382,24 +321,24 @@ RegisterNUICallback('broadcastMessage', function(data, cb)
     cb('ok')
 end)
 
--- Apply Homeland Weather
+RegisterNUICallback('cinemaMusicEnded', function(data, cb)
+    TriggerServerEvent('homeland:cinemaEnded')
+    cb('ok')
+end)
+
+-----------------------------------------------------------------------
+-- Weather
+-----------------------------------------------------------------------
 RegisterNetEvent('homeland:applyWeather', function(weatherType)
     if not weatherOverrideActive then
-        savedWeatherType = GetPrevWeatherTypeHashName()
         weatherOverrideActive = true
-        print('[HOMELAND] Saved current weather: ' .. tostring(savedWeatherType))
     end
 
     SetWeatherTypePersist(weatherType)
     SetWeatherTypeNowPersist(weatherType)
     SetWeatherTypeNow(weatherType)
     SetOverrideWeather(weatherType)
-
     SetWeatherTypeTransition(GetHashKey(weatherType), GetHashKey(weatherType), 0.0)
-
-    print('[HOMELAND] Weather set to: ' .. weatherType)
-
-    ESX.ShowNotification('⛈️ UNWETTER | Schwere Gewitterfront zieht auf.')
 end)
 
 RegisterNetEvent('homeland:restoreWeather', function()
@@ -412,73 +351,218 @@ RegisterNetEvent('homeland:restoreWeather', function()
     SetOverrideWeather('CLEAR')
 
     weatherOverrideActive = false
-    savedWeatherType = nil
-
-    print('[HOMELAND] Weather restored to CLEAR')
-
-    ESX.ShowNotification('☀️ ENTWARNUNG | Wetterlage normalisiert sich.')
 end)
 
--- Cleanup on resource stop
-AddEventHandler('onResourceStop', function(resourceName)
-    if GetCurrentResourceName() ~= resourceName then return end
-    
-    -- Cleanup blips
-    for i = 1, #activeBlips do
-        if DoesBlipExist(activeBlips[i]) then
-            RemoveBlip(activeBlips[i])
+-----------------------------------------------------------------------
+-- Cinema Music (played via NUI audio element)
+-----------------------------------------------------------------------
+RegisterNetEvent('homeland:playCinemaMusic', function()
+    SendNUIMessage({
+        action = 'playCinemaMusic',
+        file = Config.CinemaMusic.file,
+        volume = Config.CinemaMusic.volume
+    })
+end)
+
+RegisterNetEvent('homeland:stopCinemaMusic', function()
+    SendNUIMessage({
+        action = 'stopCinemaMusic'
+    })
+end)
+
+-----------------------------------------------------------------------
+-- Vehicle Tuning (max upgrades + black)
+-----------------------------------------------------------------------
+-----------------------------------------------------------------------
+-- Handling-Profile
+-----------------------------------------------------------------------
+local function GetHandlingProfile(vehicle)
+    local model = GetEntityModel(vehicle)
+    local isInsurgent = model == GetHashKey('insurgent2') or model == GetHashKey('insurgent3')
+    local isHeli = IsThisModelAHeli(model)
+
+    if isHeli then
+        return 'heli', {
+            power = 25.0, torque = 20.0, topSpeed = 6.0,
+            mass = 2200.0, drag = 1.5, submerged = 70.0
+        }
+    elseif isInsurgent then
+        return 'ground', {
+            power = 14.0, torque = 12.0, topSpeed = 4.5,
+            brake = 1.0, handBrake = 0.8, brakeBias = 0.42,
+            tractionMax = 3.0, tractionMin = 2.5, tractionSpring = 0.2,
+            steeringLock = 30.0, antiRoll = 0.5, suspension = 1.2, rebound = 1.0,
+            mass = 12000.0, drag = 4.0, seatZ = -0.5
+        }
+    else -- Nightshark / Default
+        return 'ground', {
+            power = 20.0, torque = 16.0, topSpeed = 6.5,
+            brake = 1.8, handBrake = 1.2, brakeBias = 0.45,
+            tractionMax = 4.0, tractionMin = 3.5, tractionSpring = 0.15,
+            steeringLock = 35.0, antiRoll = 1.0, suspension = 2.0, rebound = 1.5,
+            mass = 8000.0, drag = 3.0, seatZ = -0.3
+        }
+    end
+end
+
+local function ApplyHandling(vehicle, vType, tune)
+    SetVehicleEnginePowerMultiplier(vehicle, tune.power)
+    SetVehicleEngineTorqueMultiplier(vehicle, tune.torque)
+    ModifyVehicleTopSpeed(vehicle, tune.topSpeed)
+
+    if vType == 'heli' then
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fMass', tune.mass)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fInitialDragCoeff', tune.drag)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fPercentSubmerged', tune.submerged)
+        SetHeliTurbulenceScalar(vehicle, 0.0)
+    else
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fBrakeForce', tune.brake)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fHandBrakeForce', tune.handBrake)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fBrakeBiasFront', tune.brakeBias)
+
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fTractionCurveMax', tune.tractionMax)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fTractionCurveMin', tune.tractionMin)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fTractionSpringDeltaMax', tune.tractionSpring)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fTractionBiasFront', 0.50)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fLowSpeedTractionLossMult', 0.0)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fTractionLossMult', 0.0)
+
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fSteeringLock', tune.steeringLock)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fAntiRollBarForce', tune.antiRoll)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fSuspensionForce', tune.suspension)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fSuspensionReboundDamp', tune.rebound)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fCamberStiffnesss', 0.0)
+
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fMass', tune.mass)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fInitialDragCoeff', tune.drag)
+        SetVehicleHandlingFloat(vehicle, 'CHandlingData', 'fSeatOffsetDistZ', tune.seatZ)
+    end
+end
+
+-----------------------------------------------------------------------
+-- Optik-Tuning (einmalig, networked — bleibt auf dem Fahrzeug)
+-----------------------------------------------------------------------
+local function TuneVehicleVisuals(netId)
+    local attempts = 0
+    while not NetworkDoesNetworkIdExist(netId) and attempts < 50 do
+        Wait(50)
+        attempts = attempts + 1
+    end
+
+    local vehicle = NetToVeh(netId)
+    if not DoesEntityExist(vehicle) then return end
+
+    NetworkRequestControlOfEntity(vehicle)
+    local controlAttempts = 0
+    while not NetworkHasControlOfEntity(vehicle) and controlAttempts < 50 do
+        Wait(50)
+        NetworkRequestControlOfEntity(vehicle)
+        controlAttempts = controlAttempts + 1
+    end
+
+    if not NetworkHasControlOfEntity(vehicle) then return end
+
+    SetVehicleModKit(vehicle, 0)
+
+    for mod = 0, 49 do
+        local maxMod = GetNumVehicleMods(vehicle, mod) - 1
+        if maxMod >= 0 then
+            SetVehicleMod(vehicle, mod, maxMod, false)
         end
     end
-    
-    if pingBlip and DoesBlipExist(pingBlip) then
-        RemoveBlip(pingBlip)
-    end
-end)
 
--- Play alarm sound when Homeland starts
-RegisterNetEvent('homeland:playAlarm', function()
-    local soundConfig = Config.AlarmSound
-    local durationMs = tonumber(soundConfig.durationMs) or 0
+    ToggleVehicleMod(vehicle, 18, true)
+    ToggleVehicleMod(vehicle, 22, true)
+    SetVehicleColours(vehicle, 12, 12)
+    SetVehicleExtraColours(vehicle, 0, 0)
+    SetVehicleMod(vehicle, 48, -1, false)
+    SetVehicleLivery(vehicle, -1)
+    SetVehicleWindowTint(vehicle, 1)
+    SetVehicleMod(vehicle, 16, GetNumVehicleMods(vehicle, 16) - 1, false)
 
-    if alarmSoundId then
-        StopSound(alarmSoundId)
-        ReleaseSoundId(alarmSoundId)
-        alarmSoundId = nil
+    if IsThisModelAHeli(GetEntityModel(vehicle)) then
+        SetHeliBladesFullSpeed(vehicle)
+        SetHeliTailExplodeThrowDashboard(vehicle, false)
     end
 
-    alarmSoundId = GetSoundId()
-    PlaySoundFrontend(alarmSoundId, soundConfig.name, soundConfig.set, true)
+    -- Einmalig Handling setzen
+    local vType, tune = GetHandlingProfile(vehicle)
+    ApplyHandling(vehicle, vType, tune)
+end
 
-    for i = 1, soundConfig.repeats - 1 do
-        Citizen.SetTimeout(soundConfig.delay * i, function()
-            if alarmSoundId then
-                PlaySoundFrontend(alarmSoundId, soundConfig.name, soundConfig.set, true)
+-----------------------------------------------------------------------
+-- Persistent Handling Thread (1 pro Spieler, applied auf aktuelles Fahrzeug)
+-----------------------------------------------------------------------
+local function StartHandlingThread()
+    if handlingThreadActive then return end
+    handlingThreadActive = true
+
+    CreateThread(function()
+        while isAtHomeland and operationState ~= "INACTIVE" do
+            local ped = PlayerPedId()
+            local vehicle = GetVehiclePedIsIn(ped, false)
+
+            if vehicle ~= 0 and DoesEntityExist(vehicle) then
+                -- Prüfen ob es ein Homeland-Fahrzeug ist
+                local vNetId = NetworkGetNetworkIdFromEntity(vehicle)
+                local isHomelandVehicle = false
+                for _, netId in ipairs(homelandVehicleNetIds) do
+                    if netId == vNetId then
+                        isHomelandVehicle = true
+                        break
+                    end
+                end
+
+                if isHomelandVehicle then
+                    local vType, tune = GetHandlingProfile(vehicle)
+                    ApplyHandling(vehicle, vType, tune)
+                end
             end
-        end)
-    end
 
-    if durationMs > 0 then
-        Citizen.SetTimeout(durationMs, function()
-            if alarmSoundId then
-                StopSound(alarmSoundId)
-                ReleaseSoundId(alarmSoundId)
-                alarmSoundId = nil
-            end
-        end)
-    end
-end)
+            Wait(500)
+        end
 
--- Command to open Homeland UI
-RegisterCommand('homeland', function()
-    ESX.TriggerServerCallback('homeland:checkAuth', function(authorized)
-        if authorized then
-            TriggerEvent('homeland:openUI')
-        else
-            ESX.ShowNotification('❌ ZUGRIFF VERWEIGERT | Du hast keine Berechtigung für diesen Befehl.')
+        handlingThreadActive = false
+    end)
+end
+
+-- Alle Fahrzeuge sequentiell tunen (Optik) + Handling-Thread starten
+RegisterNetEvent('homeland:tuneVehicles', function(netIds)
+    homelandVehicleNetIds = netIds
+
+    CreateThread(function()
+        for _, netId in ipairs(netIds) do
+            TuneVehicleVisuals(netId)
+            Wait(500)
         end
     end)
-end, false)
 
+    StartHandlingThread()
+end)
+
+-----------------------------------------------------------------------
+-- Phone Sound (for broadcast messages)
+-----------------------------------------------------------------------
+RegisterNetEvent('homeland:playPhoneSound', function()
+    local soundId = GetSoundId()
+    PlaySoundFrontend(soundId, "Menu_Accept", "Phone_SoundSet_Default", false)
+    ReleaseSoundId(soundId)
+end)
+
+-----------------------------------------------------------------------
+-- Agent Alert Sound (custom audio via NUI, only for agents sammeln)
+-----------------------------------------------------------------------
+RegisterNetEvent('homeland:playBroadcastSound', function()
+    SendNUIMessage({
+        action = 'playBroadcastSound',
+        file = Config.NotificationSound.file,
+        volume = Config.NotificationSound.volume
+    })
+end)
+
+-----------------------------------------------------------------------
+-- Blip System
+-----------------------------------------------------------------------
 RegisterNetEvent('homeland:updateBlips', function(agentPositions)
     for i = #activeBlips, 1, -1 do
         if DoesBlipExist(activeBlips[i]) then
@@ -486,7 +570,7 @@ RegisterNetEvent('homeland:updateBlips', function(agentPositions)
         end
         activeBlips[i] = nil
     end
-    
+
     local myId = PlayerId()
     for i = 1, #agentPositions do
         local agent = agentPositions[i]
@@ -520,12 +604,11 @@ RegisterNetEvent('homeland:showPingBlip', function(coords)
         pingBlip = AddBlipForCoord(coords.x, coords.y, coords.z)
         SetBlipSprite(pingBlip, 161)
         SetBlipColour(pingBlip, 1)
-        SetBlipScale(blip, 1.2)
+        SetBlipScale(pingBlip, 1.2) -- BUG FIX: was 'blip' instead of 'pingBlip'
         BeginTextCommandSetBlipName("STRING")
-        AddTextComponentString("Gespingter Spieler")
+        AddTextComponentString("Gepingter Spieler")
         EndTextCommandSetBlipName(pingBlip)
     end
-    lastPingCoords = coords
 end)
 
 RegisterNetEvent('homeland:removePingBlip', function()
@@ -533,34 +616,38 @@ RegisterNetEvent('homeland:removePingBlip', function()
         RemoveBlip(pingBlip)
         pingBlip = nil
     end
-    lastPingCoords = nil
 end)
 
 RegisterNetEvent('homeland:stopClientPing', function()
-    SendNUIMessage({
-        action = 'stopPing'
-    })
+    SendNUIMessage({ action = 'stopPing' })
 end)
 
--- Play broadcast notification sound
-RegisterNetEvent('homeland:playBroadcastSound', function()
-    if Config.BroadcastSound then
-        PlaySoundFrontend(
-            -1, 
-            Config.BroadcastSound.name, 
-            Config.BroadcastSound.set, 
-            true
-        )
-        
-        -- Optional: Adjust volume if supported
-        if Config.BroadcastSound.volume then
-            -- Note: Volume control is limited in FiveM, this is a workaround
-            Citizen.CreateThread(function()
-                local soundId = GetSoundId()
-                PlaySoundFrontend(soundId, Config.BroadcastSound.name, Config.BroadcastSound.set, true)
-                -- Volume adjustment would require additional natives if available
-                ReleaseSoundId(soundId)
-            end)
+-----------------------------------------------------------------------
+-- Command
+-----------------------------------------------------------------------
+RegisterCommand('homeland', function()
+    ESX.TriggerServerCallback('homeland:checkAuth', function(authorized)
+        if authorized then
+            TriggerEvent('homeland:openUI')
+        else
+            ESX.ShowNotification('ZUGRIFF VERWEIGERT | Du hast keine Berechtigung.')
         end
+    end)
+end, false)
+
+-----------------------------------------------------------------------
+-- Cleanup on resource stop
+-----------------------------------------------------------------------
+AddEventHandler('onResourceStop', function(resourceName)
+    if GetCurrentResourceName() ~= resourceName then return end
+
+    for i = 1, #activeBlips do
+        if DoesBlipExist(activeBlips[i]) then
+            RemoveBlip(activeBlips[i])
+        end
+    end
+
+    if pingBlip and DoesBlipExist(pingBlip) then
+        RemoveBlip(pingBlip)
     end
 end)

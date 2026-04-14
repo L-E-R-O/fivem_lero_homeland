@@ -6,71 +6,134 @@
     <title>HOMELAND SECURITY</title>
     <link rel="stylesheet" href="homeland.css">
 </head>
-<body style="display: none;" tabindex="0">
-    <div class="menu-container" tabindex="-1">
+<body tabindex="0">
+    <div class="menu-container hidden" id="menuContainer" tabindex="-1">
+        <!-- Decorative top accent line -->
+        <div class="accent-line"></div>
+
         <div class="menu-header">
-            <h1>HOMELAND SECURITY</h1>
-            <div class="status-indicator" id="statusIndicator"></div>
+            <div class="header-left">
+                <div class="logo-badge"><img src="logo.svg" alt="HS" class="logo-img"></div>
+                <div class="header-titles">
+                    <h1>HOMELAND</h1>
+                    <span class="header-sub">SECURITY DIVISION</span>
+                </div>
+            </div>
+            <div class="status-indicator" id="statusIndicator">
+                <span class="status-dot"></span>
+                <span class="status-label" id="statusLabel">INAKTIV</span>
+            </div>
         </div>
-        
+
         <div class="menu-items" id="menuItems">
+            <!-- Agent Section -->
+            <div class="section-label">EINSATZ</div>
+
             <div class="menu-item" data-action="teleportTo">
-                <span class="item-icon">📍</span>
-                <span class="item-text">Teilnehmen (Teleportieren)</span>
+                <div class="item-icon-wrap tp-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                </div>
+                <span class="item-text">Teilnehmen</span>
+                <span class="item-badge">TP</span>
             </div>
             <div class="menu-item" data-action="teleportBack">
-                <span class="item-icon">🔙</span>
-                <span class="item-text">Zurück (Teleportieren)</span>
+                <div class="item-icon-wrap tp-back-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+                </div>
+                <span class="item-text">Zurückkehren</span>
+                <span class="item-badge">TP</span>
             </div>
-            <div class="leader-divider">
-                <span class="hint">↓ ONLY LEADER ↓</span>
+
+            <!-- Leader Section -->
+            <div class="leader-divider" id="leaderDivider">
+                <span class="divider-line"></span>
+                <span class="divider-text">LEADER</span>
+                <span class="divider-line"></span>
             </div>
-            <div class="menu-item" data-action="start">
-                <span class="item-icon">▶</span>
-                <span class="item-text">Operation Starten</span>
+
+            <div class="menu-item leader-only action-alert" data-action="alertAgents">
+                <div class="item-icon-wrap alert-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                </div>
+                <span class="item-text">Agents sammeln</span>
+                <span class="item-badge phase">P1</span>
             </div>
-            <div class="menu-item" data-action="stop">
-                <span class="item-icon">■</span>
-                <span class="item-text">Operation Beenden</span>
+            <div class="menu-item leader-only action-live" data-action="goLive">
+                <div class="item-icon-wrap live-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                </div>
+                <span class="item-text">Einsatz starten</span>
+                <span class="item-badge phase">P2</span>
             </div>
-            <div class="menu-item" data-action="setWeather">
-                <span class="item-icon">⛈️</span>
+            <div class="menu-item leader-only action-stop" data-action="stop">
+                <div class="item-icon-wrap stop-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+                </div>
+                <span class="item-text">Operation beenden</span>
+            </div>
+
+            <div class="section-divider leader-only"></div>
+
+            <div class="menu-item leader-only" data-action="setWeather">
+                <div class="item-icon-wrap weather-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 16.9A5 5 0 0 0 18 7h-1.26a8 8 0 1 0-11.62 9"/><polyline points="13 11 9 17 15 17 11 23"/></svg>
+                </div>
                 <span class="item-text">Gewitter aktivieren</span>
             </div>
-            <div class="menu-item" data-action="restoreWeather">
-                <span class="item-icon">☀️</span>
+            <div class="menu-item leader-only" data-action="restoreWeather">
+                <div class="item-icon-wrap sun-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                </div>
                 <span class="item-text">Wetter zurücksetzen</span>
             </div>
-            
-            <div style="margin-top:7px;">
-                <input type="number" id="playerIdInput" placeholder="Spieler-ID (0 = Reset)" min="0" tabindex="1">
+
+            <div class="section-divider leader-only"></div>
+
+            <!-- Tools Section -->
+            <div class="section-label">TOOLS</div>
+
+            <div class="input-group">
+                <div class="input-label">Spieler-ID</div>
+                <input type="number" id="playerIdInput" placeholder="ID eingeben (0 = Reset)" min="0" tabindex="1">
             </div>
 
-            <div class="menu-item" data-action="pingPlayer" style="margin-bottom: 14px;">
-                <span class="item-icon">📡</span>
+            <div class="menu-item" data-action="pingPlayer">
+                <div class="item-icon-wrap ping-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"/></svg>
+                </div>
                 <span class="item-text">Spieler pingen</span>
             </div>
+
+            <div class="input-group">
+                <div class="input-label">Broadcast</div>
+                <textarea id="broadcastInput" placeholder="Nachricht an alle Agents..." maxlength="200" rows="2" tabindex="2"></textarea>
+                <div class="char-count"><span id="charCount">0</span>/200</div>
+            </div>
+
+            <div class="menu-item" data-action="broadcastMessage">
+                <div class="item-icon-wrap broadcast-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </div>
+                <span class="item-text">Nachricht senden</span>
+            </div>
         </div>
 
-        <div style="margin-top:7px;">
-            <textarea id="broadcastInput" placeholder="Nachricht eingeben... (max. 200 Zeichen)" maxlength="200" rows="3" tabindex="2"></textarea>
-        </div>
-
-        <div class="menu-item" data-action="broadcastMessage">
-            <span class="item-icon">📢</span>
-            <span class="item-text">Nachricht an Agents senden</span>
-        </div>
-
-        <div class="menu-item" style="margin:15px;" data-action="close">
-            <span class="item-icon">✕</span>
+        <div class="menu-item close-item" data-action="close">
+            <div class="item-icon-wrap close-icon">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </div>
             <span class="item-text">Schließen</span>
+            <span class="item-shortcut">ESC</span>
         </div>
-        
+
         <div class="menu-footer">
-            <span class="hint">| Funk: 8.12 MHz |</span>
+            <span class="footer-text">HOMELAND SECURITY</span>
+            <span class="footer-divider">|</span>
+            <span class="footer-text">FUNK 8.12 MHz</span>
         </div>
     </div>
 
+    <audio id="cinemaAudio" preload="none"></audio>
     <script src="homeland.js"></script>
 </body>
 </html>
