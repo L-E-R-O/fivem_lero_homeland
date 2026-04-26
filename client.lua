@@ -12,6 +12,13 @@ local weatherOverrideActive = false
 local homelandVehicleNetIds = {}
 local handlingThreadActive = false
 
+local streamerMode = false
+
+local empState = { active = false, leaders = {}, homelandNetIds = {} }
+local empAffectedVehicles = {}
+local empLocalBlackout = false
+local empPtfxLoaded = false
+
 -----------------------------------------------------------------------
 -- Outfit System
 -----------------------------------------------------------------------
@@ -236,7 +243,9 @@ RegisterNetEvent('homeland:openUI', function()
             action = 'open',
             state = operationState,
             isAtHomeland = isAtHomeland,
-            isLeader = isLeader
+            isLeader = isLeader,
+            streamerMode = streamerMode,
+            empActive = empState.active
         })
     end)
 end)
@@ -323,6 +332,17 @@ end)
 
 RegisterNUICallback('cinemaMusicEnded', function(data, cb)
     TriggerServerEvent('homeland:cinemaEnded')
+    cb('ok')
+end)
+
+RegisterNUICallback('toggleStreamer', function(data, cb)
+    streamerMode = not streamerMode
+    TriggerServerEvent('homeland:setStreamer', streamerMode)
+    cb({ enabled = streamerMode })
+end)
+
+RegisterNUICallback('toggleEmp', function(data, cb)
+    TriggerServerEvent('homeland:toggleEmp')
     cb('ok')
 end)
 
@@ -553,6 +573,7 @@ end)
 -- Agent Alert Sound (custom audio via NUI, only for agents sammeln)
 -----------------------------------------------------------------------
 RegisterNetEvent('homeland:playBroadcastSound', function()
+    if streamerMode then return end
     SendNUIMessage({
         action = 'playBroadcastSound',
         file = Config.NotificationSound.file,
@@ -561,39 +582,57 @@ RegisterNetEvent('homeland:playBroadcastSound', function()
 end)
 
 -----------------------------------------------------------------------
+-- Notification Wrapper (respects Streamer Mode)
+-----------------------------------------------------------------------
+RegisterNetEvent('homeland:notify', function(data)
+    if streamerMode then return end
+    if lib and lib.notify then
+        lib.notify(data)
+    else
+        TriggerEvent('ox_lib:notify', data)
+    end
+end)
+
+-----------------------------------------------------------------------
 -- Blip System
 -----------------------------------------------------------------------
 RegisterNetEvent('homeland:updateBlips', function(agentPositions)
-    for i = #activeBlips, 1, -1 do
-        if DoesBlipExist(activeBlips[i]) then
-            RemoveBlip(activeBlips[i])
-        end
-        activeBlips[i] = nil
-    end
+    local myServerId = GetPlayerServerId(PlayerId())
+    local seen = {}
 
-    local myId = PlayerId()
     for i = 1, #agentPositions do
         local agent = agentPositions[i]
-        if agent.id ~= myId then
-            local blip = AddBlipForCoord(agent.coords.x, agent.coords.y, agent.coords.z)
-            SetBlipSprite(blip, 303)
-            SetBlipColour(blip, 1)
-            SetBlipScale(blip, 0.8)
-            SetBlipAsShortRange(blip, true)
-            BeginTextCommandSetBlipName("STRING")
-            AddTextComponentString("HOMELAND Agent")
-            EndTextCommandSetBlipName(blip)
-            activeBlips[#activeBlips + 1] = blip
+        if agent.id ~= myServerId then
+            seen[agent.id] = true
+            local blip = activeBlips[agent.id]
+            if blip and DoesBlipExist(blip) then
+                SetBlipCoords(blip, agent.coords.x, agent.coords.y, agent.coords.z)
+            else
+                blip = AddBlipForCoord(agent.coords.x, agent.coords.y, agent.coords.z)
+                SetBlipSprite(blip, 303)
+                SetBlipColour(blip, 1)
+                SetBlipScale(blip, 0.8)
+                SetBlipAsShortRange(blip, true)
+                BeginTextCommandSetBlipName("STRING")
+                AddTextComponentString("HOMELAND Agent")
+                EndTextCommandSetBlipName(blip)
+                activeBlips[agent.id] = blip
+            end
+        end
+    end
+
+    for id, blip in pairs(activeBlips) do
+        if not seen[id] then
+            if DoesBlipExist(blip) then RemoveBlip(blip) end
+            activeBlips[id] = nil
         end
     end
 end)
 
 RegisterNetEvent('homeland:clearBlips', function()
-    for i = #activeBlips, 1, -1 do
-        if DoesBlipExist(activeBlips[i]) then
-            RemoveBlip(activeBlips[i])
-        end
-        activeBlips[i] = nil
+    for id, blip in pairs(activeBlips) do
+        if DoesBlipExist(blip) then RemoveBlip(blip) end
+        activeBlips[id] = nil
     end
 end)
 
@@ -604,11 +643,13 @@ RegisterNetEvent('homeland:showPingBlip', function(coords)
         pingBlip = AddBlipForCoord(coords.x, coords.y, coords.z)
         SetBlipSprite(pingBlip, 161)
         SetBlipColour(pingBlip, 1)
-        SetBlipScale(pingBlip, 1.2) -- BUG FIX: was 'blip' instead of 'pingBlip'
+        SetBlipScale(pingBlip, 1.2)
         BeginTextCommandSetBlipName("STRING")
         AddTextComponentString("Gepingter Spieler")
         EndTextCommandSetBlipName(pingBlip)
     end
+
+    SetNewWaypoint(coords.x, coords.y)
 end)
 
 RegisterNetEvent('homeland:removePingBlip', function()
@@ -616,10 +657,147 @@ RegisterNetEvent('homeland:removePingBlip', function()
         RemoveBlip(pingBlip)
         pingBlip = nil
     end
+    SetWaypointOff()
 end)
 
 RegisterNetEvent('homeland:stopClientPing', function()
     SendNUIMessage({ action = 'stopPing' })
+end)
+
+-----------------------------------------------------------------------
+-- EMP Field
+-----------------------------------------------------------------------
+local function IsHomelandNetId(netId)
+    for i = 1, #empState.homelandNetIds do
+        if empState.homelandNetIds[i] == netId then return true end
+    end
+    return false
+end
+
+local function RestoreVehicle(veh)
+    if not DoesEntityExist(veh) then return end
+    NetworkRequestControlOfEntity(veh)
+    SetVehicleEngineOn(veh, true, true, false)
+    SetVehicleUndriveable(veh, false)
+    SetVehicleLights(veh, 0)
+end
+
+local function EmpCleanup()
+    for veh in pairs(empAffectedVehicles) do
+        RestoreVehicle(veh)
+    end
+    empAffectedVehicles = {}
+
+    if empLocalBlackout then
+        SetArtificialLightsState(false)
+        empLocalBlackout = false
+    end
+end
+
+local function EnsureEmpPtfx()
+    if empPtfxLoaded then return true end
+    RequestNamedPtfxAsset("core")
+    local tries = 0
+    while not HasNamedPtfxAssetLoaded("core") and tries < 50 do
+        Wait(50)
+        tries = tries + 1
+    end
+    empPtfxLoaded = HasNamedPtfxAssetLoaded("core")
+    return empPtfxLoaded
+end
+
+local function SparkBurst(coords)
+    if not EnsureEmpPtfx() then return end
+    UseParticleFxAssetNextCall("core")
+    StartParticleFxNonLoopedAtCoord(
+        "ent_sht_electrical_box",
+        coords.x, coords.y, coords.z + 0.5,
+        0.0, 0.0, 0.0, 1.2, false, false, false
+    )
+end
+
+local function StartEmpClientThread()
+    CreateThread(function()
+        EnsureEmpPtfx()
+        while empState.active do
+            local radius = Config.Emp.radius
+            local pCoords = GetEntityCoords(PlayerPedId())
+
+            local selfInZone = false
+            for i = 1, #empState.leaders do
+                local l = empState.leaders[i]
+                if #(pCoords - vector3(l.x, l.y, l.z)) <= radius then
+                    selfInZone = true
+                    break
+                end
+            end
+
+            if selfInZone and not empLocalBlackout then
+                SetArtificialLightsState(true)
+                SetArtificialLightsStateAffectsVehicles(false)
+                empLocalBlackout = true
+            elseif not selfInZone and empLocalBlackout then
+                SetArtificialLightsState(false)
+                empLocalBlackout = false
+            end
+
+            local vehicles = GetGamePool('CVehicle')
+            local stillAffected = {}
+
+            for _, veh in ipairs(vehicles) do
+                if DoesEntityExist(veh) and NetworkGetEntityIsNetworked(veh) then
+                    local vCoords = GetEntityCoords(veh)
+                    local minDist = 999999.0
+                    for i = 1, #empState.leaders do
+                        local l = empState.leaders[i]
+                        local d = #(vCoords - vector3(l.x, l.y, l.z))
+                        if d < minDist then minDist = d end
+                    end
+
+                    local vNetId = NetworkGetNetworkIdFromEntity(veh)
+                    local isHomeland = IsHomelandNetId(vNetId)
+
+                    if not isHomeland and minDist <= radius then
+                        if not empAffectedVehicles[veh] then
+                            SparkBurst(vCoords)
+                        end
+                        NetworkRequestControlOfEntity(veh)
+                        SetVehicleEngineOn(veh, false, true, true)
+                        SetVehicleUndriveable(veh, true)
+                        SetVehicleLights(veh, 1)
+                        empAffectedVehicles[veh] = true
+                        stillAffected[veh] = true
+                    end
+                end
+            end
+
+            for veh in pairs(empAffectedVehicles) do
+                if not stillAffected[veh] then
+                    RestoreVehicle(veh)
+                    empAffectedVehicles[veh] = nil
+                end
+            end
+
+            Wait(250)
+        end
+
+        EmpCleanup()
+    end)
+end
+
+RegisterNetEvent('homeland:empUpdate', function(data)
+    local wasActive = empState.active
+    empState.active = data.active and true or false
+    empState.leaders = data.leaders or {}
+    empState.homelandNetIds = data.homelandNetIds or {}
+
+    if empState.active and not wasActive then
+        StartEmpClientThread()
+    end
+end)
+
+RegisterNetEvent('homeland:empStateChanged', function(active)
+    SendNUIMessage({ action = 'empStateChanged', active = active and true or false })
 end)
 
 -----------------------------------------------------------------------
@@ -641,13 +819,26 @@ end, false)
 AddEventHandler('onResourceStop', function(resourceName)
     if GetCurrentResourceName() ~= resourceName then return end
 
-    for i = 1, #activeBlips do
-        if DoesBlipExist(activeBlips[i]) then
-            RemoveBlip(activeBlips[i])
-        end
+    for id, blip in pairs(activeBlips) do
+        if DoesBlipExist(blip) then RemoveBlip(blip) end
     end
+    activeBlips = {}
 
     if pingBlip and DoesBlipExist(pingBlip) then
         RemoveBlip(pingBlip)
+    end
+
+    SetWaypointOff()
+
+    -- Restore EMP-affected vehicles
+    for veh in pairs(empAffectedVehicles) do
+        if DoesEntityExist(veh) then
+            SetVehicleEngineOn(veh, true, true, false)
+            SetVehicleUndriveable(veh, false)
+            SetVehicleLights(veh, 0)
+        end
+    end
+    if empLocalBlackout then
+        SetArtificialLightsState(false)
     end
 end)

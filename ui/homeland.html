@@ -72,6 +72,14 @@
                 <span class="item-text">Operation beenden</span>
             </div>
 
+            <div class="menu-item leader-only" data-action="toggleEmp">
+                <div class="item-icon-wrap emp-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                </div>
+                <span class="item-text">EMP-Feld</span>
+                <span class="item-badge toggle-badge" id="empBadge">AUS</span>
+            </div>
+
             <div class="section-divider leader-only"></div>
 
             <div class="menu-item leader-only" data-action="setWeather">
@@ -108,6 +116,14 @@
                 <div class="input-label">Broadcast</div>
                 <textarea id="broadcastInput" placeholder="Nachricht an alle Agents..." maxlength="200" rows="2" tabindex="2"></textarea>
                 <div class="char-count"><span id="charCount">0</span>/200</div>
+            </div>
+
+            <div class="menu-item" data-action="toggleStreamer">
+                <div class="item-icon-wrap streamer-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                </div>
+                <span class="item-text">Streamer Mode</span>
+                <span class="item-badge toggle-badge" id="streamerBadge">AUS</span>
             </div>
 
             <div class="menu-item" data-action="broadcastMessage">

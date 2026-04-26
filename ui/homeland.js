@@ -126,6 +126,14 @@ function selectItem() {
     }
 }
 
+// Toggle-Badge helper
+function setBadge(id, on) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = on ? 'AN' : 'AUS';
+    el.classList.toggle('on', on);
+}
+
 // Fetch wrapper
 function safeFetch(endpoint, data = {}) {
     return fetch(`https://${GetParentResourceName()}/${endpoint}`, {
@@ -180,6 +188,17 @@ function executeAction(action) {
             break;
         case 'restoreWeather':
             safeFetch('restoreWeather');
+            break;
+        case 'toggleStreamer':
+            safeFetch('toggleStreamer')
+                .then(resp => resp && resp.json())
+                .then(data => {
+                    if (data) setBadge('streamerBadge', !!data.enabled);
+                })
+                .catch(() => {});
+            break;
+        case 'toggleEmp':
+            safeFetch('toggleEmp');
             break;
         case 'close':
             closeMenu();
@@ -287,6 +306,8 @@ window.addEventListener('message', (event) => {
             isLeader = data.isLeader || false;
             selectedIndex = 0;
             initMenu();
+            setBadge('streamerBadge', !!data.streamerMode);
+            setBadge('empBadge', !!data.empActive);
             fetchStatus();
             break;
 
@@ -321,6 +342,10 @@ window.addEventListener('message', (event) => {
                 cinemaAudio.onended = null;
                 cinemaAudio.src = '';
             }
+            break;
+
+        case 'empStateChanged':
+            setBadge('empBadge', !!data.active);
             break;
 
         case 'playBroadcastSound': {

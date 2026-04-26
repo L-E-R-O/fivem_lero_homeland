@@ -6,6 +6,9 @@ local currentWeather = "CLEAR"
 local activePings = {}
 local pingThreads = {}
 local cinemaTransitioned = false
+local empActive = false
+local empThreadRunning = false
+local streamerPlayers = {}
 
 -- Cache authorized players to reduce lookups
 local authorizedPlayersCache = {}
@@ -101,7 +104,7 @@ end
 local function NotifyPlayer(source, title, message, type, duration)
     if not source then return end
 
-    TriggerClientEvent('ox_lib:notify', source, {
+    TriggerClientEvent('homeland:notify', source, {
         title = title,
         description = message,
         type = type or 'info',
@@ -198,7 +201,14 @@ RegisterNetEvent('homeland:alertAgents', function()
             local authPlayers = GetAuthorizedPlayers()
             local positions = {}
 
+            local orderedIds = {}
             for playerId in pairs(activePlayers) do
+                orderedIds[#orderedIds + 1] = playerId
+            end
+            table.sort(orderedIds)
+
+            for i = 1, #orderedIds do
+                local playerId = orderedIds[i]
                 local ped = GetPlayerPed(playerId)
                 if DoesEntityExist(ped) then
                     positions[#positions + 1] = {
@@ -292,6 +302,12 @@ RegisterNetEvent('homeland:stop', function()
     local wasActive = operationState == "ACTIVE"
     operationState = "INACTIVE"
     cinemaTransitioned = false
+
+    if empActive then
+        empActive = false
+        TriggerClientEvent('homeland:empStateChanged', -1, false)
+    end
+
     DeleteVehicles()
 
     -- Stop cinema music for all players
@@ -545,6 +561,7 @@ AddEventHandler('playerDropped', function()
     pingThreads[source] = nil
     authorizedPlayersCache[source] = nil
     leaderCache[source] = nil
+    streamerPlayers[source] = nil
 end)
 
 -----------------------------------------------------------------------
@@ -633,6 +650,80 @@ RegisterNetEvent('homeland:pingPlayer', function(playerId)
     end)
 end)
 
+-----------------------------------------------------------------------
+-- Streamer Mode (pro Spieler, clientseitig gespeichert — Server kennt nur Flag fürs Logging)
+-----------------------------------------------------------------------
+RegisterNetEvent('homeland:setStreamer', function(enabled)
+    local source = source
+    if not IsAuthorized(source) then return end
+    streamerPlayers[source] = enabled and true or nil
+end)
+
+-----------------------------------------------------------------------
+-- EMP Field (Leader toggle — Kraftfeld folgt Leader-Positionen)
+-----------------------------------------------------------------------
+local function BroadcastEmpState()
+    if not empActive then
+        TriggerClientEvent('homeland:empUpdate', -1, {
+            active = false,
+            leaders = {},
+            homelandNetIds = spawnedVehicleNetIds
+        })
+        return
+    end
+
+    local leaders = {}
+    local xPlayers = ESX.GetExtendedPlayers()
+    for _, xPlayer in pairs(xPlayers) do
+        if IsLeader(xPlayer.source) then
+            local ped = GetPlayerPed(xPlayer.source)
+            if DoesEntityExist(ped) then
+                local coords = GetEntityCoords(ped)
+                leaders[#leaders + 1] = { x = coords.x, y = coords.y, z = coords.z }
+            end
+        end
+    end
+
+    TriggerClientEvent('homeland:empUpdate', -1, {
+        active = true,
+        leaders = leaders,
+        homelandNetIds = spawnedVehicleNetIds
+    })
+end
+
+local function StartEmpThread()
+    if empThreadRunning then return end
+    empThreadRunning = true
+
+    CreateThread(function()
+        while empActive do
+            BroadcastEmpState()
+            Wait(Config.Emp.updateMs)
+        end
+        -- final off-state
+        BroadcastEmpState()
+        empThreadRunning = false
+    end)
+end
+
+RegisterNetEvent('homeland:toggleEmp', function()
+    local source = source
+    if not IsLeader(source) then
+        NotifyPlayer(source, 'ZUGRIFF VERWEIGERT', 'Nur Leader können das EMP-Feld schalten.', 'error')
+        return
+    end
+
+    empActive = not empActive
+    TriggerClientEvent('homeland:empStateChanged', -1, empActive)
+
+    if empActive then
+        StartEmpThread()
+        NotifyAuthorized('HOMELAND SECURITY', 'EMP-Feld aktiviert.', 'warning')
+    else
+        NotifyAuthorized('HOMELAND SECURITY', 'EMP-Feld deaktiviert.', 'success')
+    end
+end)
+
 RegisterNetEvent('homeland:stopPingPlayer', function()
     local source = source
 
@@ -682,7 +773,7 @@ RegisterNetEvent('homeland:broadcastMessage', function(message)
         TriggerClientEvent('homeland:playPhoneSound', recipientId)
 
         Citizen.SetTimeout(50, function()
-            TriggerClientEvent('ox_lib:notify', recipientId, {
+            TriggerClientEvent('homeland:notify', recipientId, {
                 title = senderName,
                 description = message,
                 type = 'inform',

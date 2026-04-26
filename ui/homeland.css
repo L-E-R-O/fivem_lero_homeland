@@ -297,6 +297,8 @@ body {
 .sun-icon { background: rgba(255, 193, 7, 0.1); color: #ffc107; }
 .ping-icon { background: rgba(0, 200, 150, 0.1); color: #00c896; }
 .broadcast-icon { background: rgba(0, 255, 65, 0.06); color: var(--accent-dim); }
+.emp-icon { background: rgba(255, 193, 7, 0.1); color: #ffc107; }
+.streamer-icon { background: rgba(147, 130, 255, 0.1); color: #9382ff; }
 .close-icon { background: rgba(255, 255, 255, 0.03); color: rgba(255, 255, 255, 0.3); }
 
 .menu-item.selected .item-icon-wrap {
@@ -328,6 +330,16 @@ body {
 .item-badge.phase {
     background: var(--accent-bg);
     color: var(--accent-subtle);
+}
+
+.item-badge.toggle-badge {
+    background: rgba(220, 53, 69, 0.12);
+    color: #ff6b78;
+}
+
+.item-badge.toggle-badge.on {
+    background: var(--accent-bg);
+    color: var(--accent);
 }
 
 .item-shortcut {
